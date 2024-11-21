@@ -1843,6 +1843,7 @@ void server_stats(ADD_STAT add_stats, void *c) {
     APPEND_STAT("delete_misses", "%llu", (unsigned long long)thread_stats.delete_misses);
     APPEND_STAT("delete_hits", "%llu", (unsigned long long)slab_stats.delete_hits);
     APPEND_STAT("incr_misses", "%llu", (unsigned long long)thread_stats.incr_misses);
+    APPEND_STAT("mult_hits", "%llu", (unsigned long long)slab_stats.mult_hits);
     APPEND_STAT("incr_hits", "%llu", (unsigned long long)slab_stats.incr_hits);
     APPEND_STAT("decr_misses", "%llu", (unsigned long long)thread_stats.decr_misses);
     APPEND_STAT("decr_hits", "%llu", (unsigned long long)slab_stats.decr_hits);
@@ -2263,7 +2264,7 @@ item* limited_get_locked(const char *key, size_t nkey, LIBEVENT_THREAD *t, bool 
  * returns a response string to send back to the client.
  */
 enum delta_result_type do_add_delta(LIBEVENT_THREAD *t, const char *key, const size_t nkey,
-                                    const bool incr, const int64_t delta,
+                                    const int op, const int64_t delta,
                                     char *buf, uint64_t *cas,
                                     const uint32_t hv,
                                     item **it_ret) {
@@ -2300,7 +2301,26 @@ enum delta_result_type do_add_delta(LIBEVENT_THREAD *t, const char *key, const s
         return NON_NUMERIC;
     }
 
-    if (incr) {
+    switch (op) {
+        case 0:
+            if(delta > value) {
+                value = 0;
+            } else {
+                value -= delta;
+            }
+            break;
+
+        case 1:
+            value += delta;
+            break;
+
+        case 2:
+            value *= delta;
+            break;
+    }
+
+    /*
+    if (op) {
         value += delta;
         //MEMCACHED_COMMAND_INCR(c->sfd, ITEM_key(it), it->nkey, value);
     } else {
@@ -2311,13 +2331,26 @@ enum delta_result_type do_add_delta(LIBEVENT_THREAD *t, const char *key, const s
         }
         //MEMCACHED_COMMAND_DECR(c->sfd, ITEM_key(it), it->nkey, value);
     }
+    */
 
     pthread_mutex_lock(&t->stats.mutex);
-    if (incr) {
-        t->stats.slab_stats[ITEM_clsid(it)].incr_hits++;
-    } else {
-        t->stats.slab_stats[ITEM_clsid(it)].decr_hits++;
+    switch (op) {
+        case 0:
+            t->stats.slab_stats[ITEM_clsid(it)].decr_hits++;
+            break;
+        case 1:
+            t->stats.slab_stats[ITEM_clsid(it)].incr_hits++;
+            break;
+        case 2:
+            t->stats.slab_stats[ITEM_clsid(it)].mult_hits++;
+            break;
     }
+
+    // if (op) {
+    //     t->stats.slab_stats[ITEM_clsid(it)].incr_hits++;
+    // } else {
+    //     t->stats.slab_stats[ITEM_clsid(it)].decr_hits++;
+    // }
     pthread_mutex_unlock(&t->stats.mutex);
 
     itoa_u64(value, buf);
@@ -2357,7 +2390,7 @@ enum delta_result_type do_add_delta(LIBEVENT_THREAD *t, const char *key, const s
         /* Should never get here. This means we somehow fetched an unlinked
          * item. TODO: Add a counter? */
         if (settings.verbose) {
-            fprintf(stderr, "Tried to do incr/decr on invalid item\n");
+            fprintf(stderr, "Tried to do incr/decr/mult on invalid item\n");
         }
         if (it->refcount == 1)
             do_item_remove(it);

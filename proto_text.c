@@ -2136,7 +2136,13 @@ static void process_touch_command(conn *c, token_t *tokens, const size_t ntokens
     }
 }
 
-static void process_arithmetic_command(conn *c, token_t *tokens, const size_t ntokens, const bool incr) {
+/*
+ * op:
+ *  0 -> decr
+ *  1 -> incr
+ *  2 -> mult
+ */
+static void process_arithmetic_command(conn *c, token_t *tokens, const size_t ntokens, const int op) {
     char temp[INCR_MAX_STORAGE_LEN];
     uint64_t delta;
     char *key;
@@ -2159,7 +2165,7 @@ static void process_arithmetic_command(conn *c, token_t *tokens, const size_t nt
         return;
     }
 
-    switch(add_delta(c->thread, key, nkey, incr, delta, temp, NULL)) {
+    switch(add_delta(c->thread, key, nkey, op, delta, temp, NULL)) {
     case OK:
         out_string(c, temp);
         break;
@@ -2171,7 +2177,7 @@ static void process_arithmetic_command(conn *c, token_t *tokens, const size_t nt
         break;
     case DELTA_ITEM_NOT_FOUND:
         pthread_mutex_lock(&c->thread->stats.mutex);
-        if (incr) {
+        if (op) {
             c->thread->stats.incr_misses++;
         } else {
             c->thread->stats.decr_misses++;
@@ -2880,6 +2886,14 @@ void process_command_ascii(conn *c, char *command) {
             default:
                 out_string(c, "ERROR");
                 break;
+        }
+    } else if (first == 'm') {
+        if (strcmp(tokens[COMMAND_TOKEN].value, "mult") == 0) {
+
+            WANT_TOKENS_OR(ntokens, 4, 5);
+            process_arithmetic_command(c, tokens, ntokens, 2);
+        } else {
+            out_string(c, "ERROR");
         }
     } else if (first == 'g') {
         // Various get commands are very common.
