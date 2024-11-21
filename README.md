@@ -1,5 +1,8 @@
 # Memcached
 
+> [!NOTE]
+> This is a modified version of memcached version 1.6.32 based on [this blog post](https://quuxplusone.github.io/blog/2022/01/06/memcached-interview/) to implement new `mult` command.
+
 Memcached is a high performance multithreaded event-based key/value cache
 store intended to be used in a distributed system.
 
